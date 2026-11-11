@@ -123,22 +123,16 @@ def handle_start(message):
         update_user_state(user_id, name, step=1, verified=False, pending_movie_id=target_movie_id)
         user = {"user_id": user_id, "name": name, "step": 1, "verified": False, "pending_movie_id": target_movie_id}
     elif target_movie_id:
-        # Actualizar la película pendiente si el usuario hizo clic en otro enlace de película
         update_user_state(user_id, name, pending_movie_id=target_movie_id)
         user["pending_movie_id"] = target_movie_id
 
-    # Si viene de completar la verificación del acortador
+    # Si el usuario completó la verificación y regresa al bot con verify_
     if "verify_" in text_payload:
-        new_step = user["step"] + 1
-        if new_step > MAX_STEPS:
-            update_user_state(user_id, name, step=new_step, verified=True)
-            send_success_verification(message.chat.id, name, user.get("pending_movie_id"))
-        else:
-            update_user_state(user_id, name, step=new_step, verified=False)
-            send_verification_step(message.chat.id, user_id, name)
+        update_user_state(user_id, name, step=1, verified=True)
+        send_success_verification(message.chat.id, name, user.get("pending_movie_id"))
         return
 
-    # Validar estado de verificación
+    # Validar estado de verificación actual en la BD
     if user["verified"]:
         send_success_verification(message.chat.id, name, user.get("pending_movie_id"))
     else:
@@ -146,7 +140,6 @@ def handle_start(message):
 
 def send_verification_step(chat_id, user_id, name):
     user = get_user(user_id)
-    current_step = user["step"] if user else 1
     movie_id = user.get("pending_movie_id") if user else None
 
     # Obtener el acortador específico de la película o uno por defecto
@@ -159,13 +152,18 @@ def send_verification_step(chat_id, user_id, name):
     text = (
         f"👋 **HEY** {name},\n\n"
         f"📌 **DEBES VERIFICARTE PARA ACCEDER A LA PELÍCULA.**\n\n"
-        f"#VERIFICATION:- {current_step}/{MAX_STEPS} ✓"
+        f"#VERIFICATION:- 1/1 ✓"
     )
     
     markup = InlineKeyboardMarkup()
     bot_username = bot.get_me().username
     bot_link = f"https://t.me/{bot_username}?start=verify_{user_id}"
-    final_verify_url = shortener_url + bot_link if "=" in shortener_url else shortener_url
+    
+    # Asegurar que el enlace del acortador reciba correctamente el destino
+    if "=" in shortener_url:
+        final_verify_url = shortener_url + bot_link
+    else:
+        final_verify_url = shortener_url + f"&url={bot_link}" if "?" in shortener_url else shortener_url + f"?url={bot_link}"
     
     markup.add(InlineKeyboardButton("🟢 CLICK AQUÍ PARA VERIFICAR 🟢", url=final_verify_url))
     bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
@@ -199,6 +197,7 @@ def deliver_movie(call):
                 caption_text = f"🎬 **{movie['title']}**\n\n⚠️ *Este archivo se borrará en 2 minutos. Reenvíalo a otro chat.*"
                 sent_msg = bot.send_video(chat_id=chat_id, video=movie['file_id'], caption=caption_text, parse_mode="Markdown")
                 delete_message_after_delay(chat_id, sent_msg.message_id, 120)
+                bot.answer_callback_query(call.id, "¡Película enviada!")
             else:
                 bot.answer_callback_query(call.id, "❌ Película no encontrada.", show_alert=True)
         except Exception as e:
