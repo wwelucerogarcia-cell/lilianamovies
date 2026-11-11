@@ -110,7 +110,6 @@ def handle_start(message):
     name = message.from_user.first_name
     text_payload = message.text
 
-    # Detectar si el usuario viene pidiendo una película específica (ej: /start movie_3)
     target_movie_id = None
     if "movie_" in text_payload:
         try:
@@ -126,13 +125,11 @@ def handle_start(message):
         update_user_state(user_id, name, pending_movie_id=target_movie_id)
         user["pending_movie_id"] = target_movie_id
 
-    # Si el usuario completó la verificación y regresa al bot con verify_
     if "verify_" in text_payload:
         update_user_state(user_id, name, step=1, verified=True)
         send_success_verification(message.chat.id, name, user.get("pending_movie_id"))
         return
 
-    # Validar estado de verificación actual en la BD
     if user["verified"]:
         send_success_verification(message.chat.id, name, user.get("pending_movie_id"))
     else:
@@ -142,7 +139,6 @@ def send_verification_step(chat_id, user_id, name):
     user = get_user(user_id)
     movie_id = user.get("pending_movie_id") if user else None
 
-    # Obtener el acortador específico de la película o uno por defecto
     shortener_url = "https://tu-web-acortadora.com/api?api=TU_API_KEY&url="
     if movie_id:
         movie = get_movie(movie_id)
@@ -159,7 +155,6 @@ def send_verification_step(chat_id, user_id, name):
     bot_username = bot.get_me().username
     bot_link = f"https://t.me/{bot_username}?start=verify_{user_id}"
     
-    # Asegurar que el enlace del acortador reciba correctamente el destino
     if "=" in shortener_url:
         final_verify_url = shortener_url + bot_link
     else:
@@ -205,8 +200,22 @@ def deliver_movie(call):
     else:
         bot.answer_callback_query(call.id, "❌ Debes completar la verificación primero.", show_alert=True)
 
-# --- 5. INICIO DEL BOT ---
+# --- 5. INICIO DEL BOT CON LIMPIEZA DE CONFLICTOS ---
 if __name__ == "__main__":
     init_db()
     print("Bot dinámico con Supabase en marcha...")
-    bot.infinity_polling(skip_pending=True)
+    
+    # Eliminar cualquier conexión o webhook previo retenido por Telegram
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except Exception:
+        pass
+
+    # Bucle seguro de reconexión para evitar que el bot muera ante caídas de red
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Error en polling: {e}. Reiniciando conexión en 5 segundos...")
+            time.sleep(5)
